@@ -1,0 +1,3 @@
+[submodule "crpat"]
+	path = crpat
+	url = https://github.com/ennorehling/crpat
