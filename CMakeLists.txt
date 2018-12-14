@@ -6,5 +6,5 @@ find_package (Lua51 REQUIRED)
 
 add_executable (vorlua vorlua.c)
 target_include_directories (vorlua PRIVATE ${LUA_INCLUDE_DIR})
-target_link_libraries(vorlua ${LUA_LIBRARIES})
+target_link_libraries(vorlua ${LUA_LIBRARIES} crpat)
 
