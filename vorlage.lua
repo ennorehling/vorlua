@@ -10,7 +10,17 @@ local function dump_table(tbl, indent)
 end
 
 local function itoa36(i)
-    return "enno"
+    i = tonumber(i)
+    if i <= 0 then return '0' end
+    local digits = '0123456789abcdefghijkLmnopqrstuvwxyz'
+    local a = ''
+    while i > 0 do
+        local d = (i % 36) - 1
+        d = string.sub(digits, d, d)
+        a = d .. a
+        i = math.floor(i / 36)
+    end
+    return a
 end
 
 local function template(cr)
