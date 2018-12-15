@@ -165,8 +165,8 @@ static void handle_property(void *udata, const char *name, const char *value) {
     lua_State *L = state->L;
 
     assert(lua_istable(L, -1));
-    lua_pushstring(L, value);
     lua_pushstring(L, name);
+    lua_pushstring(L, value);
     lua_settable(L, -3);
 }
 
