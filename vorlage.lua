@@ -44,7 +44,7 @@ local function template(cr)
                                 print('    ' .. str)
                             end
                         end
-                        print('\n')
+                        print('')
                         str = nil
                     end
                 end
