@@ -9,6 +9,10 @@
 #include <lauxlib.h>
 
 #include <assert.h>
+#include <errno.h>
+#include <limits.h>
+#include <locale.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,25 +24,10 @@
 
 typedef struct parser_s {
     lua_State *L;
-    enum block_e {
-        BLOCK_NONE,
-        BLOCK_REPORT,
-        BLOCK_FACTION,
-        BLOCK_REGION,
-        BLOCK_UNIT,
-        BLOCK_SHIP,
-        BLOCK_BUILDING,
-        BLOCK_UNKNOWN,
-    } block;
     char * error;
     CR_Parser parser;
-    int num_factions;
-    int num_regions;
-    int num_units;
-    int num_ships;
-    int num_buildings;
-    int num_strings;
     int stack_depth;
+    bool child;
 } parser_t;
 
 static void error(parser_t *state, const char *format, ...) {
@@ -67,258 +56,147 @@ static void warn(parser_t *state, const char *format, ...) {
     CR_StopParser(state->parser);
 }
 
-static int stack_depth(enum block_e block) {
-    switch (block) {
-    case BLOCK_NONE:
+static int stack_depth(const char *block) {
+    if (strcmp(block, "VERSION") == 0) {
         return 0;
-    case BLOCK_REPORT:
+    }
+    if (strcmp(block, "REGION") == 0) {
+        return 0;
+    }
+    if (strcmp(block, "PARTEI") == 0) {
+        return 0;
+    }
+    if (strcmp(block, "EINHEIT") == 0) {
         return 1;
-    case BLOCK_REGION:
-    case BLOCK_FACTION:
-        return 2;
-    case BLOCK_UNIT:
-    case BLOCK_SHIP:
-    case BLOCK_BUILDING:
-        return 3;
+    }
+    if (strcmp(block, "SCHIFF") == 0) {
+        return 1;
+    }
+    if (strcmp(block, "BURG") == 0) {
+        return 1;
     }
     return -1;
 }
-
-static int state_update(parser_t *state, enum block_e parent, enum block_e child)
-{
-    lua_State *L = state->L;
-    int depth = state->stack_depth;
-    if (depth >= 0) {
-        int target = stack_depth(parent);
-        if (target >= 0) {
-            int change = depth - target;
-            if (change >= 0) {
-                lua_pop(L, change);
-                state->block = child;
-                state->stack_depth = stack_depth(child);
-                return change;
-            }
-        }
-    }
-    error(state, "state_update(%d, %d) failed at depth %d", (int)parent, (int)child, state->stack_depth);
-    return -1;
-}
-
 
 static void handle_element(void *udata, const char *name,
-        const char **attr)
+    const char **attr)
 {
     parser_t *state = (parser_t *)udata;
     lua_State *L = state->L;
-    
-    if (state->block == BLOCK_NONE) {
-        if (strcmp("VERSION", name) == 0) {
-            int version;
-            if (attr[0] == NULL) {
-                error(state, gettext("%s expects %d argument"), name, 1);
-                return;
-            }
-            version = atoi(attr[0]);
-            if (version < 66) {
-                error(state, gettext("unknown report version %d"), version);
-                return;
-            }
-            state_update(state, BLOCK_NONE, BLOCK_REPORT);
-            state->num_factions = 0;
-            state->num_regions = 0;
-            lua_newtable(L);
-            lua_pushstring(L, "version");
-            lua_pushinteger(L, version);
-            lua_rawset(L, -3);
-        }
-        else {
-            warn(state, gettext("unknown block %s"), name);
-            state->block = BLOCK_UNKNOWN;
-        }
+    int depth = stack_depth(name);
+
+    if (state->child) {
+        /* if the last element was the child of a game object, pop it off the stack */
+        lua_pop(L, 1);
+        --state->stack_depth;
+    }
+    if (depth < 0) {
+        /* this element is still part of the current game object */
+        state->child = true;
     }
     else {
-        if (strcmp("EINHEIT", name) == 0) {
-            int no;
+        /* this is a new game object, fix the stack so the parent is on top */
+        int diff = state->stack_depth - depth;
+        assert(diff >= 0);
+        lua_pop(L, diff);
+        state->stack_depth = depth;
+        state->child = false;
 
-            state_update(state, BLOCK_REGION, BLOCK_UNIT);
-            if (attr[0] == NULL) {
-                error(state, gettext("%s expects %d argument"), name, 1);
-                return;
-            }
-            no = atoi(attr[0]);
-            lua_pushstring(L, "units");
-            lua_gettable(L, -2);
-            if (!lua_istable(L, -1)) {
-                assert(state->num_units == 0);
-                lua_newtable(L);
-                lua_pushstring(L, "units");
-                lua_pushvalue(L, -2);
-                lua_rawset(L, -3);
-            }
-            lua_newtable(L);
-            lua_pushvalue(L, -1);
-            lua_pushstring(L, "id");
-            lua_pushinteger(L, no);
-            lua_rawset(L, -3);
-            lua_rawseti(L, -2, ++state->num_units);
-        }
-        else if (strcmp("SCHIFF", name) == 0) {
-            int no;
-
-            state_update(state, BLOCK_REGION, BLOCK_SHIP);
-            if (attr[0] == NULL) {
-                error(state, gettext("%s expects %d argument"), name, 1);
-                return;
-            }
-            no = atoi(attr[0]);
-            lua_pushstring(L, "ships");
-            lua_gettable(L, -2);
-            if (!lua_istable(L, -1)) {
-                assert(state->num_ships == 0);
-                lua_newtable(L);
-                lua_pushstring(L, "ships");
-                lua_pushvalue(L, -2);
-                lua_rawset(L, -3);
-            }
-            lua_newtable(L);
-            lua_pushvalue(L, -1);
-            lua_pushstring(L, "id");
-            lua_pushinteger(L, no);
-            lua_rawset(L, -3);
-            lua_rawseti(L, -2, ++state->num_ships);
-        }
-        else if (strcmp("BURG", name) == 0) {
-            int no;
-
-            state_update(state, BLOCK_REGION, BLOCK_BUILDING);
-            if (attr[0] == NULL) {
-                error(state, gettext("%s expects %d argument"), name, 1);
-                return;
-            }
-            no = atoi(attr[0]);
-            lua_pushstring(L, "buildings");
-            lua_gettable(L, -2);
-            if (!lua_istable(L, -1)) {
-                assert(state->num_buildings == 0);
-                lua_newtable(L);
-                lua_pushstring(L, "buildings");
-                lua_pushvalue(L, -2);
-                lua_rawset(L, -3);
-            }
-            lua_newtable(L);
-            lua_pushvalue(L, -1);
-            lua_pushstring(L, "id");
-            lua_pushinteger(L, no);
-            lua_rawset(L, -3);
-            lua_rawseti(L, -2, ++state->num_ships);
-        }
-        else if (strcmp("PARTEI", name) == 0) {
-            int no;
-
-            state_update(state, BLOCK_REPORT, BLOCK_FACTION);
-            if (attr[0] == NULL) {
-                error(state, gettext("%s expects %d argument"), name, 1);
-                return;
-            }
-            no = atoi(attr[0]);
-            lua_pushstring(L, "factions");
-            lua_gettable(L, -2);
-            if (!lua_istable(L, -1)) {
-                assert(state->num_factions == 0);
-                lua_newtable(L);
-                lua_pushstring(L, "factions");
-                lua_pushvalue(L, -2);
-                lua_rawset(L, -3);
-            }
-            lua_newtable(L);
-            lua_pushvalue(L, -1);
-            lua_pushstring(L, "id");
-            lua_pushinteger(L, no);
-            lua_rawset(L, -3);
-            lua_rawseti(L, -2, ++state->num_factions);
-        }
-        else if (strcmp("REGION", name) == 0) {
-            int x, y, z = 0;
-
-            if (attr[0] == NULL || attr[1] == NULL) {
-                error(state, gettext("%s expects %d or more arguments"), name, 2);
-                return;
-            }
-            x = atoi(attr[0]);
-            y = atoi(attr[1]);
-            if (attr[2]) {
-                z = atoi(attr[2]);
-            }
-            state_update(state, BLOCK_REPORT, BLOCK_REGION);
-            lua_pushstring(L, "regions");
-            lua_gettable(L, -2);
-            if (!lua_istable(L, -1)) {
-                lua_pushstring(L, "regions");
-                lua_newtable(L);
-                lua_pushvalue(L, -1);
-                lua_rawset(L, -3);
-            }
-            state->num_units = 0;
-            lua_newtable(L);
-            lua_pushvalue(L, -1);
-            lua_pushstring(L, "x");
-            lua_pushinteger(L, x);
-            lua_rawset(L, -3);
-            lua_pushstring(L, "y");
-            lua_pushinteger(L, y);
-            lua_rawset(L, -3);
-            if (z != 0) {
-                lua_pushstring(L, "z");
-                lua_pushinteger(L, z);
-                lua_rawset(L, -3);
-            }
-            lua_rawseti(L, -2, ++state->num_regions);
-        }
-        else {
-            warn(state, gettext("unknown block %s"), name);
-            state->block = BLOCK_UNKNOWN;
+        /* game objects need key atttributes */
+        if (attr[0] == NULL) {
+            error(state, gettext("%s expects at least one key argument"), name);
+            return;
         }
     }
+    /* the parent game object is on top of the stack */
+    if (attr[0] != NULL) {
+        int index, i;
+
+        /* create the new object */
+        lua_newtable(L);
+        /* there can be more than one of this block in the object, we need a list */
+        lua_pushstring(L, name);
+        lua_gettable(L, -3);
+        if (lua_istable(L, -1)) {
+            size_t len = lua_objlen(L, -1);
+            assert(len < INT_MAX);
+            index = (int)len + 1;
+        }
+        else {
+            /* remove the failed get result */
+            lua_pop(L, 1);
+            /* list does not exist yet, add it */
+            lua_newtable(L);
+            lua_pushstring(L, name);
+            lua_pushvalue(L, -2);
+            lua_settable(L, -5);
+            index = 1;
+        }
+        /* the list is now on top of the stack */
+        lua_pushvalue(L, -2);
+        /* copy of the new object is on top of the stack */
+        lua_rawseti(L, -2, index);
+        /* new object has been appended to list, remove list: */
+        lua_pop(L, 1);
+        /* new object is on top of stack */
+
+        /* add keys to a new array: */
+        lua_pushstring(L, "keys");
+        lua_newtable(L);
+        for (i = 0; attr[i]; ++i) {
+            lua_pushstring(L, attr[i]);
+            lua_rawseti(L, -2, i + 1);
+        }
+        /* add array to the new object: */
+        lua_settable(L, -3);
+    }
+    else {
+        lua_newtable(L);
+        lua_pushstring(L, name);
+        lua_pushvalue(L, -2);
+        lua_settable(L, -4);
+    }
+    /* the new object is on top of the stack */
+    ++state->stack_depth;
 }
 
 static void handle_property(void *udata, const char *name, const char *value) {
     parser_t *state = (parser_t *)udata;
     lua_State *L = state->L;
 
-    if (state->block != BLOCK_UNKNOWN) {
-        lua_pushstring(L, name);
-        lua_pushstring(L, value);
-        lua_rawset(L, -3);
-    }
+    assert(lua_istable(L, -1));
+    lua_pushstring(L, value);
+    lua_pushstring(L, name);
+    lua_settable(L, -3);
 }
 
 static void handle_text(void *udata, const char *text) {
+    size_t len;
+    int index;
+    parser_t *state = (parser_t *)udata;
+    lua_State *L = state->L;
+    lua_pushstring(L, text);
+    len = lua_objlen(L, -2);
+    assert(len < INT_MAX);
+    index = (int)len;
+    lua_rawseti(L, -2, index + 1);
 }
 
-static int parse_crfile(lua_State *L, const char *filename) {
+static int parse_crfile(lua_State *L, FILE *in) {
     CR_Parser cp;
     int done = 0, err = 0;
     char buf[2048], *input;
-    FILE * in = fopen(filename, "rt+");
     parser_t state;
     size_t len;
+    const char * filename = lua_tostring(L, 1);
 
-    if (!in) {
-        fprintf(stderr,
-                "could not open %s: %s\n",
-                filename, strerror(errno));
-        return errno;
-    }
     cp = CR_ParserCreate();
     CR_SetElementHandler(cp, handle_element);
     CR_SetPropertyHandler(cp, handle_property);
     CR_SetTextHandler(cp, handle_text);
 
+    memset(&state, 0, sizeof(state));
     state.L = L;
-    state.block = BLOCK_NONE;
-    state.error = NULL;
-    state.parser = cp;
-    state.stack_depth = 0;
     CR_SetUserData(cp, (void *)&state);
 
     input = buf;
@@ -328,38 +206,90 @@ static int parse_crfile(lua_State *L, const char *filename) {
         input += 3;
         len -= 3;
     }
+    /* first, create the object we want to return */
+    lua_newtable(L);
     while (!done) {
         if (ferror(in)) {
-            fprintf(stderr, 
-                    "read error at line %d of %s: %s\n",
-                    CR_GetCurrentLineNumber(cp),
-                    filename, strerror(errno));
-            err = errno;
-            break;
+            int err = errno;
+            errno = 0;
+            lua_pop(L, state.stack_depth + 1);
+            return luaL_error(L, gettext("read error at line %d of %s: %s\n"),
+                CR_GetCurrentLineNumber(cp), filename, strerror(err));
         }
         done = feof(in);
         if (CR_Parse(cp, input, len, done) == CR_STATUS_ERROR) {
-            fprintf(stderr,
-                    "parse error at line %d of %s: %s\n",
-                    CR_GetCurrentLineNumber(cp),
-                    filename, CR_ErrorString(CR_GetErrorCode(cp)));
-            err = -1;
-            break;
+            lua_pop(L, state.stack_depth + 1);
+            return luaL_error(L, gettext("parse error at line %d of %s: %s\n"),
+                CR_GetCurrentLineNumber(cp), filename, 
+                CR_ErrorString(CR_GetErrorCode(cp)));
         }
         len = fread(buf, 1, sizeof(buf), in);
         input = buf;
     }
     CR_ParserFree(cp);
-    return err;
+    lua_pop(L, state.stack_depth);
+    return 1;
+}
+
+static void l_abort(lua_State *L, const char *fmt, ...) {
+    va_list argp;
+    va_start(argp, fmt);
+    vfprintf(stderr, fmt, argp);
+    va_end(argp);
+    lua_close(L);
+    exit(EXIT_FAILURE);
+}
+
+static int l_crparse(lua_State *L) {
+    const char * filename;
+    FILE *in;
+
+    if (!lua_isstring(L, 1)) {
+        return luaL_error(L, gettext("%s: argument should be a string"), __FUNCTION__);
+    }
+    filename = lua_tostring(L, 1);
+    in = fopen(filename, "rt+");
+    if (!in) {
+        int error = errno;
+        errno = 0;
+        lua_pushnil(L);
+        lua_pushstring(L, strerror(error));
+        return 2;
+    }
+    return parse_crfile(L, in);
+}
+
+static int usage(const char *name) {
+    fprintf(stderr, gettext("Usage: %s <script> [arg1 ...]\n"), name);
+    return EXIT_FAILURE;
 }
 
 int main (int argc, char *argv[]) {
     lua_State *L = lua_open();
+    int i;
+    const char * script = NULL;
+
+    if (argc < 1) {
+        return usage(argv[0]);
+    }
+    script = argv[1];
+
     luaL_openlibs(L);
+    setlocale(LC_ALL, "");
 
-    parse_crfile(L, "crpat/example/sample.cr");
+    lua_newtable(L);
+    for (i = 1; i != argc; ++i) {
+        lua_pushstring(L, argv[i]);
+        lua_rawseti(L, -2, i - 1);
+    }
+    lua_setglobal(L, "arg");
+    lua_pushcfunction(L, l_crparse);
+    lua_setglobal(L, "crparse");
 
+    if (luaL_dofile(L, script)) {
+        fputs(lua_tostring(L, -1), stderr);
+    }
     lua_close(L);
-    return 0;
+    return EXIT_SUCCESS;
 }
 
