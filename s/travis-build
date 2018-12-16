@@ -1,0 +1,11 @@
+#!/bin/sh
+
+set -e
+
+cd build
+git submodule update --init
+cmake ..
+make
+cd ..
+cppcheck --quiet -UCR_GETTEXT -UHAVE_GETTEXT -U_MSC_VER *.c
+
