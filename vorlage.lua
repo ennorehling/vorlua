@@ -1,14 +1,3 @@
-local function dump_table(tbl, indent)
-    for k,v in pairs(tbl) do
-        if type(v) == 'table' then
-            print(indent .. k .. ':')
-            dump_table(v, '  ' .. indent)
-        else
-          print(indent .. k .. ': ' .. v)
-        end
-    end
-end
-
 local function itoa36(i)
     i = tonumber(i)
     if i <= 0 then return '0' end

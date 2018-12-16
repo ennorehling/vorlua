@@ -56,34 +56,40 @@ static void warn(parser_t *state, const char *format, ...) {
     CR_StopParser(state->parser);
 }
 
-static int stack_depth(const char *block) {
+static int block_info(const char *block, int keyc, int *multi) {
+    *multi = (keyc > 0);
     if (strcmp(block, "VERSION") == 0) {
+        *multi = 0;
         return 0;
     }
-    if (strcmp(block, "REGION") == 0) {
+    else if (strcmp(block, "REGION") == 0) {
         return 0;
     }
-    if (strcmp(block, "PARTEI") == 0) {
+    else if (strcmp(block, "MESSAGETYPE") == 0) {
         return 0;
     }
-    if (strcmp(block, "EINHEIT") == 0) {
+    else if (strcmp(block, "PARTEI") == 0) {
+        return 0;
+    }
+    else if (strcmp(block, "EINHEIT") == 0) {
         return 1;
     }
-    if (strcmp(block, "SCHIFF") == 0) {
+    else if (strcmp(block, "SCHIFF") == 0) {
         return 1;
     }
-    if (strcmp(block, "BURG") == 0) {
+    else if (strcmp(block, "BURG") == 0) {
         return 1;
     }
     return -1;
 }
 
-static void handle_element(void *udata, const char *name,
-    const char **attr)
+static void handle_element(void *udata, const char *name, unsigned int keyc, int keyv[])
 {
     parser_t *state = (parser_t *)udata;
     lua_State *L = state->L;
-    int depth = stack_depth(name);
+    int depth, multi;
+    
+    depth = block_info(name, keyc, &multi);
 
     if (state->child) {
         /* if the last element was the child of a game object, pop it off the stack */
@@ -103,51 +109,61 @@ static void handle_element(void *udata, const char *name,
         state->child = false;
 
         /* game objects need key atttributes */
-        if (attr[0] == NULL) {
+        if (keyc == 0) {
             error(state, gettext("%s expects at least one key argument"), name);
             return;
         }
     }
     /* the parent game object is on top of the stack */
-    if (attr[0] != NULL) {
-        int index, i;
+    if (keyc > 0) {
+        int index = 0, i;
 
         /* create the new object */
         lua_newtable(L);
-        /* there can be more than one of this block in the object, we need a list */
-        lua_pushstring(L, name);
-        lua_gettable(L, -3);
-        if (lua_istable(L, -1)) {
-            size_t len = lua_objlen(L, -1);
-            assert(len < INT_MAX);
-            index = (int)len + 1;
+        if (multi) {
+            /* there can be more than one of this block in the object, we need a sequence */
+            lua_pushstring(L, name);
+            lua_gettable(L, -3);
+            if (lua_istable(L, -1)) {
+                size_t len = lua_objlen(L, -1);
+                assert(len < INT_MAX);
+                index = (int)len + 1;
+            }
+            else {
+                /* remove the failed get result */
+                lua_pop(L, 1);
+                /* list does not exist yet, add it */
+                lua_newtable(L);
+                lua_pushstring(L, name);
+                lua_pushvalue(L, -2);
+                lua_settable(L, -5);
+                index = 1;
+            }
+        }
+        if (index > 0) {
+            /* the sequence is now on top of the stack */
+            lua_pushvalue(L, -2);
+            /* copy of the new object is on top of the stack */
+            lua_rawseti(L, -2, index);
+            /* new object has been appended, remove sequence: */
+            lua_pop(L, 1);
         }
         else {
-            /* remove the failed get result */
-            lua_pop(L, 1);
-            /* list does not exist yet, add it */
-            lua_newtable(L);
+            /* this block is not in a sequence */
             lua_pushstring(L, name);
             lua_pushvalue(L, -2);
-            lua_settable(L, -5);
-            index = 1;
+            lua_settable(L, -4);
         }
-        /* the list is now on top of the stack */
-        lua_pushvalue(L, -2);
-        /* copy of the new object is on top of the stack */
-        lua_rawseti(L, -2, index);
-        /* new object has been appended to list, remove list: */
-        lua_pop(L, 1);
         /* new object is on top of stack */
 
         /* add keys to a new array: */
         lua_pushstring(L, "keys");
         lua_newtable(L);
-        for (i = 0; attr[i]; ++i) {
-            lua_pushstring(L, attr[i]);
+        for (i = 0; i != (int)keyc; ++i) {
+            lua_pushinteger(L, keyv[i]);
             lua_rawseti(L, -2, i + 1);
         }
-        /* add array to the new object: */
+        /* add the keys to the new object: */
         lua_settable(L, -3);
     }
     else {
@@ -160,13 +176,23 @@ static void handle_element(void *udata, const char *name,
     ++state->stack_depth;
 }
 
-static void handle_property(void *udata, const char *name, const char *value) {
+static void handle_string(void *udata, const char *name, const char *value) {
     parser_t *state = (parser_t *)udata;
     lua_State *L = state->L;
 
     assert(lua_istable(L, -1));
     lua_pushstring(L, name);
     lua_pushstring(L, value);
+    lua_settable(L, -3);
+}
+
+static void handle_number(void *udata, const char *name, double value) {
+    parser_t *state = (parser_t *)udata;
+    lua_State *L = state->L;
+
+    assert(lua_istable(L, -1));
+    lua_pushstring(L, name);
+    lua_pushinteger(L, (lua_Integer)value);
     lua_settable(L, -3);
 }
 
@@ -192,7 +218,8 @@ static int parse_crfile(lua_State *L, FILE *in) {
 
     cp = CR_ParserCreate();
     CR_SetElementHandler(cp, handle_element);
-    CR_SetPropertyHandler(cp, handle_property);
+    CR_SetPropertyHandler(cp, handle_string);
+    CR_SetNumberHandler(cp, handle_number);
     CR_SetTextHandler(cp, handle_text);
 
     memset(&state, 0, sizeof(state));
