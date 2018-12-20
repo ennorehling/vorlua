@@ -40,19 +40,7 @@ static void error(parser_t *state, const char *format, ...) {
     if (state->error) {
         vsnprintf(state->error, size + 1, format, ap);
     }
-    CR_StopParser(state->parser);
-}
-
-static void warn(parser_t *state, const char *format, ...) {
-    va_list ap;
-    int size;
-
-    va_start(ap, format);
-    size = vsnprintf(NULL, 0, format, ap);
-    state->error = malloc(size + 1);
-    if (state->error) {
-        vsnprintf(state->error, size + 1, format, ap);
-    }
+    va_end(ap);
     CR_StopParser(state->parser);
 }
 
@@ -210,7 +198,7 @@ static void handle_text(void *udata, const char *text) {
 
 static int parse_crfile(lua_State *L, FILE *in) {
     CR_Parser cp;
-    int done = 0, err = 0;
+    int done = 0;
     char buf[2048], *input;
     parser_t state;
     size_t len;
@@ -256,15 +244,6 @@ static int parse_crfile(lua_State *L, FILE *in) {
     CR_ParserFree(cp);
     lua_pop(L, state.stack_depth);
     return 1;
-}
-
-static void l_abort(lua_State *L, const char *fmt, ...) {
-    va_list argp;
-    va_start(argp, fmt);
-    vfprintf(stderr, fmt, argp);
-    va_end(argp);
-    lua_close(L);
-    exit(EXIT_FAILURE);
 }
 
 static int l_crparse(lua_State *L) {

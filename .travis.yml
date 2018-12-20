@@ -1,0 +1,14 @@
+sudo: false
+language: c
+compiler:
+  - gcc
+  - clang
+script: s/travis-build
+addons:
+  apt:
+    packages:
+      - liblua5.1-dev
+      - cppcheck
+os:
+  - linux
+
