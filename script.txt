@@ -1,0 +1,8 @@
+load sample\1101-wiki.cr
+filter
+store
+load sample\1100-wiki.cr
+filter
+merge
+save map.cr
+quit
