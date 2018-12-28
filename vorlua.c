@@ -56,6 +56,9 @@ static int block_info(const char *block, int keyc, int *multi) {
     else if (strcmp(block, "MESSAGETYPE") == 0) {
         return 0;
     }
+    else if (strcmp(block, "TRANSLATION") == 0) {
+        return 0;
+    }
     else if (strcmp(block, "PARTEI") == 0) {
         return 0;
     }
@@ -212,6 +215,7 @@ static int parse_crfile(lua_State *L, FILE *in) {
 
     memset(&state, 0, sizeof(state));
     state.L = L;
+    state.parser = cp;
     CR_SetUserData(cp, (void *)&state);
 
     input = buf;

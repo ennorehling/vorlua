@@ -16,6 +16,28 @@ function mod.read(filename)
     return crparse(filename)
 end
 
+function mod.find_region_id(cr, id)
+    for _, r in ipairs(cr.REGION) do
+        if r.id == id then
+            return r
+        end
+    end
+    return nil
+end
+
+function mod.find_region(cr, x, y, z)
+    if 'table' == type(cr.REGION) then
+        for _, r in ipairs(cr.REGION) do
+            if r.keys[1] == x and r.keys[2] == y then
+                if not z or r.keys[3] == z then
+                    return r
+                end
+            end
+        end
+    end
+    return nil
+end
+
 local block_write -- forward define for circular recursion
 
 local function tbl_write(file, tbl, name, recursive)
@@ -88,10 +110,14 @@ function mod.write(cr, filename)
     return cr
 end
 
-function mod.move(cr, delta_x, delta_y)
+function mod.move(cr, delta_x, delta_y, z)
+    z = z or 0
     for _, r in ipairs(cr.REGION) do
-        r.keys[0] = r.keys[0] + delta_x
-        r.keys[1] = r.keys[1] + delta_y
+        local rz = r.keys[3]
+        if not rz or z == rz then
+            r.keys[1] = r.keys[1] + delta_x
+            r.keys[2] = r.keys[2] + delta_y
+        end
     end
     return cr
 end
@@ -137,17 +163,18 @@ local function merge_list(orig, list)
 end
 
 local function filter_tags(el, tags)
-    local c = el
-    c.keys = el.keys
+    local keys = {}
     for k, v in pairs(el) do
-        if 'table' == type(v) then
-            c[k] = v
+        for _, t in ipairs(tags) do
+            if t == k then v = nil end
+        end
+        if v and 'table' ~= type(v) then
+            table.insert(keys, k)
         end
     end
-    for _, t in ipairs(tags) do
-        c[t] = el[t]
+    for _, k in ipairs(keys) do
+        el[k] = nil
     end
-    return c
 end
 
 local function filter_element(el, filter)
@@ -161,7 +188,7 @@ local function filter_element(el, filter)
                         filter_element(v, f)
                     else
                         -- sequence, e.g. REGION
-                        for _, e in ipairs(v) do
+                        for i, e in ipairs(v) do
                             filter_element(e, f)
                         end
                     end
@@ -171,14 +198,24 @@ local function filter_element(el, filter)
             end
         end
     end
-    if (filter.tags) then
-        el = filter_tags(el, filter.tags)
+    if filter.tags then
+        filter_tags(el, filter.tags)
     end
 end
 
 function mod.filter(cr, filter)
     filter_element(cr, filter)
 end
+
+mod.map_filter = {
+    ['elements'] = {
+        ['VERSION'] = {},
+        ['REGION'] = {
+            ['tags'] = { 'id', 'Terrain', 'Name', 'Beschr', 'keys' },
+            ['elements'] = {}
+        }
+    }
+}
 
 function mod.dump(cr)
     dump_table(cr)
