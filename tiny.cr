@@ -41,6 +41,7 @@ EINHEIT 553084
 1045107;Partei
 COMMANDS
 "UNTERHALTE"
+"LERNE \"Stangenwaffen\""
 TALENTE
 30 1;Burgenbau
 30 1;Unterhaltung
