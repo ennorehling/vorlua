@@ -19,15 +19,28 @@ local function regionname(r)
     return string.format('%s (%d, %d)', name, r.keys[1], r.keys[2])
 end
 
+local function get_item(u, name)
+    if u.GEGENSTAENDE then
+        return u.GEGENSTAENDE[name]
+    end
+    return 0
+end
+
 local function unitname(u)
     return string.format('%s (%s)', u.Name, itoa36(u.keys[1]))
 end
 
+local function work_pay(r)
+    return r.Lohn or 11
+end
+
 local function template(cr, password)
     local fno = nil
+    local frace = nil
     for _, f in ipairs(cr.PARTEI) do
         if f.age then
             fno = f.keys[1]
+            frace = f.Typ
             break
         end
     end
@@ -35,19 +48,43 @@ local function template(cr, password)
         local str = string.format('PARTEI %s "%s"', itoa36(fno), password)
         print(str .. '\n')
         for _, r in ipairs(cr.REGION) do
+            local ship, bldg, owner
             if r.EINHEIT then
-                str = string.format('REGION %s %s', r.keys[1], r.keys[2])
+                str = string.format('REGION %s,%s', r.keys[1], r.keys[2])
                 if (r.keys[3]) then
                     str = str .. ' ' .. r.keys[3]
                 end
-                str = str .. '; ' .. (r.Name or r.Terrain)
+                str = str .. ' ; ' .. (r.Name or r.Terrain)
                 for _, u in ipairs(r.EINHEIT) do
+                    if u.Schiff then
+                        owner = u.Schiff ~= ship
+                    elseif u.Burg then
+                        owner = u.Burg ~= bldg
+                    end
+                    ship = u.Schiff
+                    bldg = u.Burg
                     if u.Partei == fno then
                         if str then
-                            print(str .. '\n')
+                            print(str)
+                            print('; ECheck Lohn ' ..  work_pay(r) - 1 .. '\n')
                         end
-                        str = string.format('EINHEIT %s ; %s',
+                        str = string.format('EINHEIT %s;    %s',
                             itoa36(u.keys[1]), u.Name)
+                        str = str .. ' [' .. u.Anzahl
+                        local wealth = get_item(u, 'Silber') or 0
+                        str = str .. ',' .. wealth .. '$'
+                        if u.Typ ~= frace then
+                            str = str .. ',I'
+                        end
+                        if ship then
+                            if owner then
+                                str = str .. ',S'
+                            else
+                                str = str .. ',s'
+                            end
+                            str = str .. itoa36(ship)
+                        end
+                        str = str .. ']'
                         print(str)
                         if u.COMMANDS then
                             for _, str in ipairs(u.COMMANDS) do

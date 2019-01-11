@@ -21,14 +21,13 @@ do
         local r = crs.find_region(cr, 0, 0)
         if origin then
             if not r or origin ~= r.id then
-                local o = crs.find_region_id(cr, origin)
-                if not o then
-                    cr = nil
-                else
-                    local dx = o.keys[1]
-                    local dy = o.keys[2]
+                local dx, dy
+                dx, dy = crs.find_offset(result, cr)
+                if dx and dy then
                     print(name, 'origin is at ' .. dx .. ',' .. dy)
                     crs.move(cr, - dx, - dy)
+                else
+                    print(name, 'origin not found')
                 end
             end
         else

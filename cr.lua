@@ -217,6 +217,16 @@ mod.map_filter = {
     }
 }
 
+function mod.find_offset(from, cr)
+    for _, r in ipairs(from.REGION) do
+        local o = crs.find_region_id(cr, r.id)
+        if o then
+            return o.keys[1] - r.keys[1], o.keys[2] - r.keys[2]
+        end
+    end
+    return nil, nil
+end
+
 function mod.dump(cr)
     dump_table(cr)
 end
