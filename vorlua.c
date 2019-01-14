@@ -57,7 +57,7 @@ static int block_info(const char *block, int keyc, bool *seq) {
         return 0;
     }
     else if (strcmp(block, "TRANSLATION") == 0) {
-        return 1;
+        return 0;
     }
     else if (strcmp(block, "PARTEI") == 0) {
         return 0;

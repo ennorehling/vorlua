@@ -16,6 +16,7 @@ local map_filter = {
 }
 
 result, err = crs.read(infile)
+print(result.VERSION)
 if result then
     crs.filter(result, map_filter)
     crs.write(result, outfile)
