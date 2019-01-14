@@ -26,8 +26,8 @@ typedef struct parser_s {
     lua_State *L;
     char * error;
     CR_Parser parser;
-    int stack_depth;
-    bool child;
+    int stack_depth; /* number of tables on the stack */
+    bool subsection; /* current element is a subsection of the object */
 } parser_t;
 
 static void error(parser_t *state, const char *format, ...) {
@@ -44,10 +44,10 @@ static void error(parser_t *state, const char *format, ...) {
     CR_StopParser(state->parser);
 }
 
-static int block_info(const char *block, int keyc, int *multi) {
-    *multi = (keyc > 0);
+static int block_info(const char *block, int keyc, bool *seq) {
+    *seq = (keyc > 0);
     if (strcmp(block, "VERSION") == 0) {
-        *multi = 0;
+        *seq = 0;
         return 0;
     }
     else if (strcmp(block, "REGION") == 0) {
@@ -57,7 +57,7 @@ static int block_info(const char *block, int keyc, int *multi) {
         return 0;
     }
     else if (strcmp(block, "TRANSLATION") == 0) {
-        return 0;
+        return 1;
     }
     else if (strcmp(block, "PARTEI") == 0) {
         return 0;
@@ -74,79 +74,91 @@ static int block_info(const char *block, int keyc, int *multi) {
     return -1;
 }
 
+static void new_block(lua_State *L, const char *name) {
+    /* stack: parent -> object */
+    lua_pushstring(L, name);
+    lua_pushvalue(L, -2);
+    /* stack: parent -> object -> name -> objref */
+    lua_settable(L, -4); /* parent.name = obj */
+}
+
+static void new_sequence(lua_State *L, const char *name) {
+    /* stack: parent -> object */
+    int index = 0;
+    lua_pushstring(L, name);
+    lua_gettable(L, -3);
+    if (lua_isnil(L, -1)) {
+        /* the sequence does not exist yet, create it */
+        /* remove the failed get result */
+        lua_pop(L, 1);
+        lua_newtable(L);
+        lua_pushstring(L, name);
+        lua_pushvalue(L, -2);
+        /* stack: parent -> object -> sequence -> name -> seqref */
+        lua_settable(L, -5);
+        /* stack: parent -> object -> sequence */
+        index = 1;
+    }
+    else {
+        /* the sequence exist already, how long is it? */
+        size_t len = lua_objlen(L, -1);
+        assert(len < INT_MAX);
+        index = (int)len + 1;
+    }
+    if (index > 0) {
+        /* the sequence is now on top of the stack */
+        lua_pushvalue(L, -2);
+        /* stack: parent -> object -> sequence -> objref */
+        /* add the new object to the sequence */
+        lua_rawseti(L, -2, index); /* parent.name[index] = obj */
+    }
+    /* remove sequence, so object is top-of-stack */
+    lua_pop(L, 1);
+}
+
 static void handle_element(void *udata, const char *name, unsigned int keyc, int keyv[])
 {
     parser_t *state = (parser_t *)udata;
     lua_State *L = state->L;
-    int depth, multi;
-    
-    depth = block_info(name, keyc, &multi);
+    bool sequence;
+    int depth;
 
-    if (state->child) {
-        /* if the last element was the child of a game object, pop it off the stack */
-        lua_pop(L, 1);
-        --state->stack_depth;
-    }
-    if (depth < 0) {
-        /* this element is still part of the current game object */
-        state->child = true;
+    depth = block_info(name, keyc, &sequence);
+
+    /* new table, fix the stack so the parent is on top */
+    if (depth >= 0) {
+        /* new stack_depth is the number of tables on the stack */
+        if (state->stack_depth > depth) {
+            /* if there are descendants of our parent on stack, pop them */
+            int diff = state->stack_depth - depth;
+            lua_pop(L, diff);
+            state->stack_depth -= diff;
+        }
+        state->subsection = false;
     }
     else {
-        /* this is a new game object, fix the stack so the parent is on top */
-        int diff = state->stack_depth - depth;
-        assert(diff >= 0);
-        lua_pop(L, diff);
-        state->stack_depth = depth;
-        state->child = false;
-
-        /* game objects need key atttributes */
-        if (keyc == 0) {
-            error(state, gettext("%s expects at least one key argument"), name);
-            return;
-        }
-    }
-    /* the parent game object is on top of the stack */
-    if (keyc > 0) {
-        int index = 0, i;
-
-        /* create the new object */
-        lua_newtable(L);
-        if (multi) {
-            /* there can be more than one of this block in the object, we need a sequence */
-            lua_pushstring(L, name);
-            lua_gettable(L, -3);
-            if (lua_istable(L, -1)) {
-                size_t len = lua_objlen(L, -1);
-                assert(len < INT_MAX);
-                index = (int)len + 1;
-            }
-            else {
-                /* remove the failed get result */
-                lua_pop(L, 1);
-                /* list does not exist yet, add it */
-                lua_newtable(L);
-                lua_pushstring(L, name);
-                lua_pushvalue(L, -2);
-                lua_settable(L, -5);
-                index = 1;
-            }
-        }
-        if (index > 0) {
-            /* the sequence is now on top of the stack */
-            lua_pushvalue(L, -2);
-            /* copy of the new object is on top of the stack */
-            lua_rawseti(L, -2, index);
-            /* new object has been appended, remove sequence: */
+        if (state->subsection) {
+            /* pop the current subsection off the stack */
             lua_pop(L, 1);
+            --state->stack_depth;
         }
-        else {
-            /* this block is not in a sequence */
-            lua_pushstring(L, name);
-            lua_pushvalue(L, -2);
-            lua_settable(L, -4);
-        }
-        /* new object is on top of stack */
+        state->subsection = true;
+    }
 
+    /* the parent game object is now on top of the stack */
+    lua_newtable(L);
+    ++state->stack_depth;
+    /* top of stack is the new object */
+    if (sequence) {
+        /* there can be more than one of this block in the object, we need a sequence */
+        new_sequence(L, name);
+    }
+    else {
+        /* this block is not in a sequence */
+        new_block(L, name);
+    }
+    if (keyc > 0) {
+        int i;
         /* add keys to a new array: */
         lua_pushstring(L, "keys");
         lua_newtable(L);
@@ -154,17 +166,9 @@ static void handle_element(void *udata, const char *name, unsigned int keyc, int
             lua_pushinteger(L, keyv[i]);
             lua_rawseti(L, -2, i + 1);
         }
-        /* add the keys to the new object: */
+        /* add the keys table to our new object: */
         lua_settable(L, -3);
     }
-    else {
-        lua_newtable(L);
-        lua_pushstring(L, name);
-        lua_pushvalue(L, -2);
-        lua_settable(L, -4);
-    }
-    /* the new object is on top of the stack */
-    ++state->stack_depth;
 }
 
 static void handle_string(void *udata, const char *name, const char *value) {
@@ -297,7 +301,7 @@ int main (int argc, char *argv[]) {
     lua_setglobal(L, "crparse");
 
     if (luaL_dofile(L, script)) {
-        fputs(lua_tostring(L, -1), stderr);
+        fprintf(stderr, "%s: %s\n", script, lua_tostring(L, -1));
     }
     lua_close(L);
     return EXIT_SUCCESS;
