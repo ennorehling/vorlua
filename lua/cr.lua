@@ -40,6 +40,10 @@ end
 
 local block_write -- forward define for circular recursion
 
+local function skill_days(level)
+    return 30 * ((level + 1) * level / 2);
+end
+
 local function tbl_write(file, tbl, name, recursive)
     str = name
     if tbl.keys then
@@ -49,19 +53,33 @@ local function tbl_write(file, tbl, name, recursive)
     end
     file:write(str .. '\n')
 
-    for k, v in pairs(tbl) do
-        t = type(v)
-        if 'string' == t then
-            file:write('"' .. v .. '";' .. k .. '\n');
-        elseif 'number' == t then
-            file:write(v .. ';' .. k .. '\n');
-        elseif 'table' ~= t then
-            print(name, t, v)
+    -- first, write all attributes
+    if 'TALENTE' == name then
+        for k, v in pairs(tbl) do
+            d = skill_days(v)
+            file:write(d .. ' ' .. v .. ';' .. k .. '\n');
+        end
+    else
+        for k, v in pairs(tbl) do
+            t = type(v)
+            if 'string' == t then
+                file:write('"' .. v .. '";' .. k .. '\n');
+            elseif 'number' == t then
+                file:write(v .. ';' .. k .. '\n');
+            else
+                assert('table' == t)
+            end
         end
     end
+    -- next, write all non-sequence blocks (i.e. PREISE)
     if recursive then
         for k, v in pairs(tbl) do
-            if 'keys' ~= k and 'table' == type(v) then
+            if 'keys' ~= k and 'table' == type(v) and #v == 0 then
+                tbl_write(file, v, k, true)
+            end
+        end
+        for k, v in pairs(tbl) do
+            if 'keys' ~= k and 'table' == type(v) and #v ~= 0 then
                 block_write(file, v, k, true)
             end
         end
@@ -82,13 +100,16 @@ block_write = function(file, block, name, recursive)
     if #block > 0 then
         -- block contains a sequence
         if 'string' == type(block[1]) then
+            -- sequence of strings
             strings_write(file, block, name)
         else
+            -- sequence of blocks
             for _, child in ipairs(block) do
                 tbl_write(file, child, name, recursive)
             end
         end
     else 
+        -- single block
         tbl_write(file, block, name, recursive)
     end
 end
@@ -98,7 +119,8 @@ function mod.write(cr, filename)
     if not file then
         return nil, err
     end
-    block_write(file, cr.VERSION, 'VERSION')
+    -- always write the VERSION block first
+    tbl_write(file, cr.VERSION, 'VERSION', false)
     for _, key in ipairs({'PARTEI', 'REGION', 'MESSAGETYPE'}) do
         if cr[key] then
             for _, v in ipairs(cr[key]) do
@@ -122,11 +144,19 @@ function mod.move(cr, delta_x, delta_y, z)
     return cr
 end
 
+-- break cyclical reference:
+local merge_list
+
 local function merge_object(orig, new)
     if not orig then return new end
-    for k,v in pairs(new) do
-        if 'table' == type(v) then
-            orig[k] = merge_object(orig[k], v)
+    for k, v in pairs(new) do
+        if k~='keys' and 'table' == type(v) then
+            local o = orig[k]
+            if v.keys then
+                orig[k] = merge_object(o, v)
+            else
+                orig[k] = merge_list(o, v)
+            end
         else
             orig[k] = v
         end
@@ -142,22 +172,27 @@ local function hkey(keys)
     return s
 end
 
-local function merge_list(orig, list)
+merge_list = function(orig, list)
     if not list then return orig end
     if not orig then return list end
-    local hash = {}
-    for k, f in ipairs(orig) do
-        local no = hkey(f.keys)
-        hash[no] = { ['index'] = k, ['f'] = f }
-    end
-    for _, f in ipairs(list) do
-        local no = hkey(f.keys)
-        if hash[no] then
-            local oh = hash[no]
-            orig[oh.index] = merge_object(oh.f, f)
-        else
-            table.insert(orig, f)
+    if type(list[1]) == 'table' then
+        local hash = {}
+        for k, f in ipairs(orig) do
+            local no = hkey(f.keys)
+            hash[no] = { ['index'] = k, ['f'] = f }
         end
+        for _, f in ipairs(list) do
+            local no = hkey(f.keys)
+            if hash[no] then
+                local oh = hash[no]
+                orig[oh.index] = merge_object(oh.f, f)
+            else
+                table.insert(orig, f)
+            end
+        end
+    else
+        -- COMMANDS
+        return list
     end
     return orig
 end
@@ -165,8 +200,8 @@ end
 local function filter_tags(el, tags)
     local keys = {}
     for k, v in pairs(el) do
-        for _, t in ipairs(tags) do
-            if t == k then v = nil end
+        for _, pat in ipairs(tags) do
+            if pat == k or string.match(k, pat) == k then v = nil end
         end
         if v and 'table' ~= type(v) then
             table.insert(keys, k)
@@ -244,9 +279,10 @@ function mod.status(cr)
 end
 
 function mod.merge(orig, cr)
-    merge_object(orig.VERSION, cr.VERSION)
-    merge_list(orig.PARTEI, cr.PARTEI)
-    merge_list(orig.REGION, cr.REGION)
+    merge_object(orig, cr)
+    -- orig.VERSION = merge_object(orig.VERSION, cr.VERSION)
+    -- orig.PARTEI = merge_list(orig.PARTEI, cr.PARTEI)
+    -- orig.REGION = merge_list(orig.REGION, cr.REGION)
     return orig
 end
 

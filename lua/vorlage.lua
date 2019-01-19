@@ -86,10 +86,13 @@ local function template(cr, password)
                         end
                         str = str .. ']'
                         print(str)
-                        if u.COMMANDS then
-                            for _, str in ipairs(u.COMMANDS) do
+                        cmds = u.COMMANDS
+                        if cmds and (#cmds > 0) then
+                            for _, str in ipairs(cmds) do
                                 print('    ' .. str)
                             end
+                        else
+                            print('    ARBEITEN')
                         end
                         print('')
                         str = nil
@@ -134,11 +137,11 @@ local function print_monsters(monsters)
     for k, v in pairs(monsters) do
         local u = v.unit
         local r = v.region
-        s = string.format('; %s: Monster: %s, %d %s',
+        s = string.format('; %s: %d %s, %s ',
             r.Name or regionname(r),
-            unitname(u),
             u.Anzahl,
-            u.Typ)
+            u.Typ,
+            unitname(u))
         print(s)
     end
 end
