@@ -34,9 +34,25 @@ end
 
 local function merge_regions(list, new)
     local input = {}
+    local ignore = {
+        'EINHEIT',
+        'SCHIFF',
+        'MESSAGE',
+        'DURCHREISE',
+        'DURCHSCHIFFUNG'
+    }
+    local update = {
+        'PREISE',
+        'RESOURCE',
+        'GRENZE',
+        'BURG'
+    }
     for i, o in ipairs(list) do
         local no = hkey(o.keys)
         input[no] = { ['index'] = i, ['value'] = o }
+        for _, k in ipairs(ignore) do
+            o[k] = nil
+        end
     end
     for _, r in ipairs(new) do
         local no = hkey(r.keys)
@@ -51,16 +67,13 @@ local function merge_regions(list, new)
                         o[k] = v
                     end
                 end
-                o.EINHEIT = r.EINHEIT
-                o.SCHIFF = r.SCHIFF
-                o.MESSAGE = r.MESSAGE
-                o.DURCHREISE = r.DURCHREISE
-                o.DURCHREISE = r.DURCHSCHIFFUNG
                 o.visibility = r.visibility
-                replace_block(o, r, 'PREISE')
-                replace_block(o, r, 'RESOURCE')
-                replace_block(o, r, 'BURG')
-                replace_block(o, r, 'GRENZE')
+                for _, k in ipairs(ignore) do
+                    o[k] = r[k]
+                end
+                for _, k in ipairs(update) do
+                    replace_block(o, r, k)
+                end
                 list[orig.index] = o
             else
                 list[orig.index] = r
@@ -100,6 +113,7 @@ local function merge(orig, cr)
     orig.PARTEI = cr.PARTEI
     orig.REGION = merge_regions(orig.REGION, cr.REGION)
     orig.MESSAGETYPE = nil
+    orig.BATTLE = nil
     return orig
 end
 
