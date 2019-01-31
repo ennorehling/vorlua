@@ -12,7 +12,7 @@ local function dump_table(tbl, indent)
     end
 end
 
-function find_region_id(cr, id)
+local function find_region_id(cr, id)
     for _, r in ipairs(cr.REGION) do
         if r.id == id then
             return r
@@ -21,7 +21,7 @@ function find_region_id(cr, id)
     return nil
 end
 
-function find_region(cr, x, y, z)
+local function find_region(cr, x, y, z)
     if 'table' == type(cr.REGION) then
         for _, r in ipairs(cr.REGION) do
             if r.keys[1] == x and r.keys[2] == y then
@@ -37,7 +37,16 @@ end
 local block_write -- forward define for circular recursion
 
 local function skill_days(level)
-    return 30 * ((level + 1) * level / 2);
+    return 30 * ((level + 1) * level / 2)
+end
+
+local function write_pair(file, v, k)
+    local s = v .. ';' .. k
+    file:write(s .. '\n')
+end
+
+local function write_string(file, v, k)
+    write_pair(file, '"' .. v .. '"', k)
 end
 
 local function tbl_write(file, tbl, name, recursive)
@@ -52,16 +61,36 @@ local function tbl_write(file, tbl, name, recursive)
     -- first, write all attributes
     if 'TALENTE' == name then
         for k, v in pairs(tbl) do
-            d = skill_days(v)
-            file:write(d .. ' ' .. v .. ';' .. k .. '\n');
+            if 'number' == type(v) then
+                -- not an offical CR format
+                d = skill_days(v)
+                write_pair(file, d .. ' ' .. v, k)
+            else
+                write_pair(file, v, k)
+            end
         end
     else
         for k, v in pairs(tbl) do
             t = type(v)
             if 'string' == t then
-                file:write('"' .. v .. '";' .. k .. '\n');
+                if 'MESSAGE' == name then
+                    -- in MESSAGE blocks, regional attributes
+                    -- are triples of numbers represented in a string,
+                    -- but take no quotes. This is shit.
+                    if 'regions' == k then
+                        -- the "regions" key in travel messages is a 
+                        -- list of regions, it can have a single entry.
+                        write_string(file, v, k)
+                    elseif string.match(v, "%-?%d+ %-?%d+ %d+") == v then
+                        write_pair(file, v, k)
+                    else
+                        write_string(file, v, k)
+                    end
+                else
+                    write_string(file, v, k)
+                end
             elseif 'number' == t then
-                file:write(v .. ';' .. k .. '\n');
+                write_pair(file, v, k)
             else
                 assert('table' == t)
             end
@@ -110,7 +139,7 @@ block_write = function(file, block, name, recursive)
     end
 end
 
-local function write(cr, filename)
+local function crwrite(cr, filename)
     file, err = io.open(filename, "w")
     if not file then
         return nil, err
@@ -128,7 +157,7 @@ local function write(cr, filename)
     return cr
 end
 
-local function move(cr, delta_x, delta_y, z)
+local function crmove(cr, delta_x, delta_y, z)
     z = z or 0
     for _, r in ipairs(cr.REGION) do
         local rz = r.keys[3]
@@ -191,7 +220,7 @@ local map_filter = {
     }
 }
 
-local function filter(cr, filter)
+local function crfilter(cr, filter)
     filter = filter or map_filter
     filter_element(cr, filter)
 end
@@ -206,7 +235,7 @@ local function find_offset(from, cr)
     return nil, nil
 end
 
-local function status(cr)
+local function crstatus(cr)
     for k, v in pairs(cr) do
         if 'table' == type(v) then
             if #v > 0 then
@@ -220,10 +249,10 @@ end
 
 return {
     ['read'] = crparse,
-    ['write'] = write,
-    ['status'] = status,
-    ['filter'] = filter,
-    ['move'] = move,
+    ['write'] = crwrite,
+    ['status'] = crstatus,
+    ['filter'] = crfilter,
+    ['move'] = crmove,
     ['merge'] = crmerge,
     ['dump'] = dump_table,
     ['find_offset'] = find_offset,

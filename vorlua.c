@@ -181,13 +181,13 @@ static void handle_string(void *udata, const char *name, const char *value) {
     lua_settable(L, -3);
 }
 
-static void handle_number(void *udata, const char *name, unsigned int count, double values[]) {
+static void handle_number(void *udata, const char *name, long value) {
     parser_t *state = (parser_t *)udata;
     lua_State *L = state->L;
 
     assert(lua_istable(L, -1));
     lua_pushstring(L, name);
-    lua_pushinteger(L, (lua_Integer)values[count-1]);
+    lua_pushinteger(L, (lua_Integer)value);
     lua_settable(L, -3);
 }
 
