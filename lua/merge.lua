@@ -5,9 +5,15 @@ local function merge(result, ...)
     for _, infile in ipairs(args) do
         cr, err = crs.read(infile)
         if cr then
+            local dx, dy
+            dx, dy = crs.find_offset(result, cr)
+            if dx and dy then
+                print(infile, 'origin is at ' .. dx .. ',' .. dy)
+                crs.move(cr, - dx, - dy)
+            end
             crs.merge(result, cr)
         else
-            print(name, err)
+            print(infile, err)
         end
     end
     return result

@@ -16,7 +16,7 @@ local function merge(result, faction, first, last)
                     dx, dy = crs.find_offset(result, cr)
                     if dx and dy then
                         print(name, 'origin is at ' .. dx .. ',' .. dy)
-                        crs.move(cr, - dx, - dy)
+                        crs.move(result, dx, dy)
                     else
                         print(name, 'origin not found')
                     end

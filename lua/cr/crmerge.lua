@@ -39,7 +39,9 @@ local function merge_regions(list, new)
         'SCHIFF',
         'MESSAGE',
         'DURCHREISE',
-        'DURCHSCHIFFUNG'
+        'DURCHSCHIFFUNG',
+        'visibility',
+        'Runde'
     }
     local update = {
         'PREISE',
@@ -111,6 +113,7 @@ end
 local function merge(orig, cr)
     merge_object(orig.VERSION, cr.VERSION)
     orig.PARTEI = cr.PARTEI
+    assert(orig.REGION)
     orig.REGION = merge_regions(orig.REGION, cr.REGION)
     orig.MESSAGETYPE = nil
     orig.BATTLE = nil

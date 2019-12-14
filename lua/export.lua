@@ -2,9 +2,15 @@ crs = require('cr')
 
 local export_filter = {
     ['elements'] = {
-        ['VERSION'] = {},
+        ['VERSION'] = {
+            ['tags'] = {
+                'Spiel', 'charset', 'Koordinaten', 'Basis', 'Runde', 'Zeitalter'
+            }
+        },
         ['REGION'] = {
-            ['tags'] = { 'Terrain', 'Name', 'Beschr', 'Lohn', 'id', 'keys' },
+            ['tags'] = {
+                'Terrain', 'Kraut', 'Name', 'Beschr', 'Lohn', 'id', 'keys'
+            },
             ['elements'] = {
                 ['BURG'] = {
                     ['tags'] = { 'Typ', 'Name', 'Groesse' },
