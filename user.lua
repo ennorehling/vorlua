@@ -1,9 +1,36 @@
 -- user defined functions
 
+local crlib = require 'crlib'
+local crs = require 'cr'
+
 local self = {}
 
+local function get_char_at(s, i)
+    return string.sub(s, i, i)
+end
+
+local function gen_name()
+    local vowels = 'aeiouy'
+    local consos = 'lmnbgtrws'
+    local sy = math.random(2,4)
+    local name = ''
+    for i = sy,1,-1 do
+        local c = get_char_at(consos, math.random(1, string.len(consos)))
+        local v = get_char_at(vowels, math.random(1, string.len(vowels)))
+        if string.len(name) == 0 then
+            c = string.upper(c)
+        end
+        name = name .. c .. v
+    end
+    return name
+end
+
+local function gen_elf_name()
+    return gen_name() .. ' ' .. gen_name()
+end
+
 local function get_level(u, skill)
-    if u.TALENTE[skill] then
+    if u.TALENTE and u.TALENTE[skill] then
         return tonumber(u.TALENTE[skill]:match(" (%d+)"))
     end
     return 0
@@ -11,6 +38,15 @@ end
 
 self.work = function(ctx)
     return 'ARBEITE'
+end
+
+self.make_bows = function(ctx)
+    local level = get_level(ctx.unit, 'Waffenbau')
+    if level < 2 then
+        return 'LERNE Waffenbau'
+    else
+        return 'MACHE Bogen'
+    end
 end
 
 self.entertain = function(ctx, ...)
@@ -23,19 +59,86 @@ self.entertain = function(ctx, ...)
     end
 end
 
-self.new_entertainers = function(ctx)
-    local count = ctx.unit.Anzahl * 10
-    local maxr = ctx.region.Rekruten
+-- learn skill [skill ...]
+-- example: #call learn Stangenwaffen Ausdauer
+self.learn = function(ctx, ...)
+    local u = ctx.unit
+    local n = #arg
+    if n == 1 then
+        return 'LERNE AUTO ' .. arg(1)
+    else
+        local i = 1 + ctx.turn % n
+        return 'LERNE AUTO ' .. arg[i]
+    end
+end
+
+self.learnto = function(ctx, skill, level)
+    local u = ctx.unit
+    if get_level(u, skill) < tonumber(level) then
+        return 'LERNE AUTO ' .. skill
+    else
+        return {
+            'LERNE AUTO ' .. skill,
+            '; OBS: ' .. skill .. ' ' .. get_level(u, skill)
+        }
+    end
+end
+
+self.recruit_entertainers = function(ctx)
+    local r = ctx.region
+    local u = ctx.unit
+    local count = u.Anzahl * 10
+    local maxr = r.Rekruten
     if count > maxr then count = maxr end
-    temp = math.random()
+    temp = itoa36(u.keys[1])
+    local level = get_level(u, 'Unterhaltung')
+    if level >= 2 then
+        -- can teach the new unit:
+        return {
+            'LEHRE TEMP ' .. temp,
+            'DEFAULT UNTERHALTE',
+            'MACHE TEMP ' .. temp .. ' "' .. gen_elf_name() .. '"',
+            '  REKRUTIERE ' .. count,
+            '  LERNE Unterhaltung',
+            '  DEFAULT UNTERHALTE',
+            'ENDE'
+        }
+    end
+    -- the new unit must learn without teacher:
     return {
-        'LEHRE TEMP ' .. temp,
-        'DEFAULT UNTERHALTE',
-        'MACHE TEMP ' .. temp,
-        '  LERNE Unterhaltung',
+        'UNTERHALTE',
+        'MACHE TEMP ' .. temp .. ' "' .. gen_elf_name() .. '"',
+        '  REKRUTIERE ' .. count,
+        '  LERNE AUTO Unterhaltung',
         '  DEFAULT UNTERHALTE',
         'ENDE'
     }
+end
+
+self.findstone = function(ctx)
+    local r = ctx.region
+    local u = ctx.unit
+    if r.Steine then
+        return {
+            '// OBS: Steine gefunden',
+            'MACHE Steine',
+        }
+    else
+        return 'LERNE AUTO Steinbau'
+    end
+end
+
+self.findiron = function(ctx)
+    local r = ctx.region
+    local u = ctx.unit
+    if r.Eisen then
+        return {
+            '// OBS: Eisen gefunden',
+            'MACHE Eisen',
+        }
+    else
+        return 'LERNE AUTO Bergbau'
+    end
 end
 
 local function find_new_monsters(cr, old)
@@ -164,12 +267,12 @@ local function print_messages(cr, faction_id)
                     if m.unit then
                         local r = nil
                         if m.region then
-                            r = cr_get_region(cr, m.region)
+                            r = crlib.get_region(cr, m.region)
                         end
-                        u = cr_get_unit(cr, m.unit, r)
+                        u = crlib.get_unit(cr, m.unit, r)
                         if r then
                             if not u then
-                                u = cr_get_unit(cr, m.unit, nil)
+                                u = crlib.get_unit(cr, m.unit, nil)
                             end
                         end
                         if u then
@@ -205,7 +308,7 @@ self.onload = function(cr, faction)
     local name = (turn-1) .. '-' .. itoa36(fno) .. '.cr'
     local old, err = crs.read(name)
     if not old then
-        io.stderr:write(name .. '\t' .. err .. '\n')
+        log_error(name .. '\t' .. err .. '\n')
     else
         local monsters = find_new_monsters(cr, old)
         print_monsters(monsters)

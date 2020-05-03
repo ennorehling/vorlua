@@ -1,8 +1,13 @@
-crs = require 'cr'
-user = require 'user'
+local crs = require 'cr'
+local user = require 'user'
+local crlib = require 'crlib'
 
 -- BEGIN exports
 -- TODO: move exports to a separate library file
+
+function log_error(str)
+    io.stderr:write(str)
+end
 
 function itoa36(x)
     i = tonumber(x)
@@ -24,51 +29,6 @@ local function is_function(var)
     return type(var) == 'function'
 end
 
-local function factionname(f)
-    return string.format('%s (%s)', f.Parteiname, itoa36(f.keys[1]))
-end
-
-local function regionname(r)
-    name = r.Name or r.Terrain
-    return string.format('%s (%d,%d)', name, r.keys[1], r.keys[2])
-end
-
-local function cr_get_faction(cr, no)
-    for _, f in ipairs(cr.PARTEI) do
-        if f.keys[1] == no then
-            return f
-        end
-    end
-    return nil
-end
-
-local function cr_get_region(cr, x, y, z)
-    for _, r in ipairs(cr.REGION) do
-        if x == r.keys[1] and y == r.keys[2] and z == r.keys[3] then
-            return r
-        end
-    end
-    return nil
-end
-
-local function cr_get_unit(cr, no, r)
-    if r then
-        if r.EINHEIT then
-            for _, u in ipairs(r.EINHEIT) do
-                if u.keys[1] == no then
-                    return u
-                end
-            end
-        end
-    else
-        for _, r in ipairs(cr.REGION) do
-            u = cr_get_unit(cr, no, r)
-            if u then return u end
-        end
-    end
-    return nil
-end
-
 local function get_item(u, name)
     if u.GEGENSTAENDE then
         return u.GEGENSTAENDE[name]
@@ -83,7 +43,16 @@ local function get_skill(u, name)
     return 0
 end
 
-local function unitname(u)
+function factionname(f)
+    return string.format('%s (%s)', f.Parteiname, itoa36(f.keys[1]))
+end
+
+function regionname(r)
+    name = r.Name or r.Terrain
+    return string.format('%s (%d,%d)', name, r.keys[1], r.keys[2])
+end
+
+function unitname(u)
     return string.format('%s (%s)', u.Name, itoa36(u.keys[1]))
 end
 
@@ -97,10 +66,13 @@ end
 
 local function parse_comment(ctx, cmd, ...)
     if cmd == '#call' then
-        local fname = arg[1]
+        local fname = ...
         local fun = user[fname]
-        if type(fun) == 'function' then
-            return fun(ctx, unpack(arg, 2))
+        if is_function(fun) then
+            local args = {...}
+            return fun(ctx, table.unpack(args, 2))
+        else
+            log_error('no such function: ' .. fname)
         end
     end
     return nil
@@ -154,7 +126,7 @@ local function template(cr, faction, password)
             end
             str = str .. ' ; ' .. (r.Name or r.Terrain)
             for k, u in pairs(guards) do
-                local f = cr_get_faction(cr, k)
+                local f = crlib.get_faction(cr, k)
                 str = str .. '\n' .. '; bewacht von ' .. factionname(f)
             end
             for _, u in ipairs(r.EINHEIT) do
@@ -192,6 +164,7 @@ local function template(cr, faction, password)
                         print('; ' .. u.privat)
                     end
                     print_commands({['unit'] = u, ['region'] = r})
+                    str = nil
                 end
             end
         end
@@ -200,7 +173,9 @@ local function template(cr, faction, password)
 end
 
 local function process(cr, faction)
+    local turn = cr.VERSION.Runde or nil
     local ctx = {
+        ['turn'] = turn,
         ['report'] = cr,
         ['faction'] = faction
     }
@@ -222,10 +197,8 @@ local function process(cr, faction)
                                     local s = parse_comment(ctx, cmd, unpack(words, 3))
                                     if s then
                                         if type(s) == 'string' then
-                                            table.insert(result, str)
                                             table.insert(result, s)
                                         elseif type(s) == 'table' then
-                                            table.insert(result, str)
                                             for _, l in ipairs(s) do
                                                 table.insert(result, l)
                                             end
@@ -236,6 +209,15 @@ local function process(cr, faction)
                         end
                     end
                     if #result > 0 then
+                        -- keep all @commands and comments
+                        for _, str in ipairs(u.COMMANDS) do
+                            if string.match(str, '@') then
+                                table.insert(result, str)
+                            end
+                            if string.match(str, '//') then
+                                table.insert(result, str)
+                            end
+                        end
                         u.COMMANDS = result
                     end
                 end
@@ -273,7 +255,7 @@ password = arg[2] or 'password'
 
 cr, err = crs.read(name)
 if not cr then
-    io.stderr:write(name .. '\t' .. err .. '\n')
+    log_error(name .. '\t' .. err .. '\n')
 else
     local faction = nil
     for _, f in ipairs(cr.PARTEI) do

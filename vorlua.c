@@ -30,20 +30,6 @@ typedef struct parser_s {
     bool subsection; /* current element is a subsection of the object */
 } parser_t;
 
-static void error(parser_t *state, const char *format, ...) {
-    va_list ap;
-    int size;
-
-    va_start(ap, format);
-    size = vsnprintf(NULL, 0, format, ap);
-    state->error = malloc(size + 1);
-    if (state->error) {
-        vsnprintf(state->error, size + 1, format, ap);
-    }
-    va_end(ap);
-    CR_StopParser(state->parser);
-}
-
 static int block_info(const char *block, int keyc, bool *seq) {
     *seq = (keyc > 0);
     if (strcmp(block, "VERSION") == 0) {
@@ -101,7 +87,7 @@ static void new_sequence(lua_State *L, const char *name) {
     }
     else {
         /* the sequence exist already, how long is it? */
-        size_t len = lua_objlen(L, -1);
+        size_t len = lua_rawlen(L, -1);
         assert(len < INT_MAX);
         index = (int)len + 1;
     }
@@ -197,7 +183,7 @@ static void handle_text(void *udata, const char *text) {
     parser_t *state = (parser_t *)udata;
     lua_State *L = state->L;
     lua_pushstring(L, text);
-    len = lua_objlen(L, -2);
+    len = lua_rawlen(L, -2);
     assert(len < INT_MAX);
     index = (int)len;
     lua_rawseti(L, -2, index + 1);
@@ -279,7 +265,7 @@ static int usage(const char *name) {
 }
 
 int main (int argc, char *argv[]) {
-    lua_State *L = lua_open();
+    lua_State *L = luaL_newstate();
     int i;
     const char * script = NULL;
 
