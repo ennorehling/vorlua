@@ -17,6 +17,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if LUA_VERSION_NUM < 520
+#define lua_rawlen lua_objlen
+#endif
+
 #ifndef HAVE_GETTEXT
 #define ngettext(msgid1, msgid2, n) ((n==1) ? (msgid1) : (msgid2))
 #define gettext(msgid) (msgid)
