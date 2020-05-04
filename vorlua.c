@@ -17,7 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if LUA_VERSION_NUM < 520
+#if LUA_VERSION_NUM < 502
 #define lua_rawlen lua_objlen
 #endif
 
