@@ -194,7 +194,7 @@ local function process(cr, faction)
                             if (words[1]=='//') then
                                 local cmd = words[2]
                                 if cmd:sub(1,1)=='#' then
-                                    local s = parse_comment(ctx, cmd, unpack(words, 3))
+                                    local s = parse_comment(ctx, cmd, table.unpack(words, 3))
                                     if s then
                                         if type(s) == 'string' then
                                             table.insert(result, s)
