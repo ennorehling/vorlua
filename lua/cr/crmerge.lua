@@ -63,25 +63,25 @@ local function merge_regions(list, new)
             table.insert(list, r)
         else
             local o = orig.value
-            if r.visibility then
-                for k, v in pairs(r) do
-                    if 'table' ~= type(v) then
-                        o[k] = v
-                    end
+                                
+            for k, v in pairs(r) do
+                if 'table' ~= type(v) then
+                    o[k] = v
                 end
-                o.visibility = r.visibility
-                for _, k in ipairs(ignore) do
-                    o[k] = r[k]
-                end
-                for _, k in ipairs(update) do
-                    replace_block(o, r, k)
-                end
-                list[orig.index] = o
-            else
-                list[orig.index] = r
             end
+                                           
+            for _, k in ipairs(ignore) do
+                o[k] = r[k]
+            end
+            for _, k in ipairs(update) do
+                replace_block(o, r, k)
+            end
+            list[orig.index] = o
+                
+                                    
         end
     end
+       
     return list
 end
 
@@ -111,12 +111,14 @@ merge_list = function(orig, list)
 end
 
 local function merge(orig, cr)
+    orig.MESSAGETYPE = nil
+    orig.BATTLE = nil
     merge_object(orig.VERSION, cr.VERSION)
     orig.PARTEI = cr.PARTEI
     assert(orig.REGION)
     orig.REGION = merge_regions(orig.REGION, cr.REGION)
-    orig.MESSAGETYPE = nil
-    orig.BATTLE = nil
+                          
+                     
     return orig
 end
 
