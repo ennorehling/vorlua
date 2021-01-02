@@ -46,6 +46,7 @@ local function merge_regions(list, new)
     local update = {
         'PREISE',
         'RESOURCE',
+        'EFFECTS',
         'GRENZE',
         'BURG'
     }
@@ -63,13 +64,11 @@ local function merge_regions(list, new)
             table.insert(list, r)
         else
             local o = orig.value
-                                
             for k, v in pairs(r) do
                 if 'table' ~= type(v) then
                     o[k] = v
                 end
             end
-                                           
             for _, k in ipairs(ignore) do
                 o[k] = r[k]
             end
@@ -77,8 +76,6 @@ local function merge_regions(list, new)
                 replace_block(o, r, k)
             end
             list[orig.index] = o
-                
-                                    
         end
     end
        
@@ -117,8 +114,6 @@ local function merge(orig, cr)
     orig.PARTEI = cr.PARTEI
     assert(orig.REGION)
     orig.REGION = merge_regions(orig.REGION, cr.REGION)
-                          
-                     
     return orig
 end
 

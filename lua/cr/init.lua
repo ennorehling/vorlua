@@ -96,15 +96,23 @@ local function tbl_write(file, tbl, name, recursive)
             end
         end
     end
-    -- next, write all non-sequence blocks (i.e. PREISE)
     if recursive then
+        -- print any tables
+        -- first, all the string lists (e.g. DURCHREISE, EFFECTS)
+        for k, v in pairs(tbl) do
+            if 'table' == type(v) and #v ~= 0 and type(v[1]) == 'string' then
+                block_write(file, v, k, true)
+            end
+        end
+        -- second, write all non-sequence blocks (i.e. PREISE)
         for k, v in pairs(tbl) do
             if 'keys' ~= k and 'table' == type(v) and #v == 0 then
                 tbl_write(file, v, k, true)
             end
         end
+        -- finally, all the remaining blocks
         for k, v in pairs(tbl) do
-            if 'keys' ~= k and 'table' == type(v) and #v ~= 0 then
+            if 'keys' ~= k and 'table' == type(v) and #v ~= 0 and type(v[1]) ~= 'string' then
                 block_write(file, v, k, true)
             end
         end
@@ -146,10 +154,17 @@ local function crwrite(cr, filename)
     end
     -- always write the VERSION block first
     tbl_write(file, cr.VERSION, 'VERSION', false)
-    for _, key in ipairs({'PARTEI', 'REGION', 'MESSAGETYPE'}) do
+    for _, key in ipairs({'PARTEI', 'REGION'}) do
         if cr[key] then
-            for _, v in ipairs(cr[key]) do
-                block_write(file, v, key, true)
+            for _, block in ipairs(cr[key]) do
+                if #block == 0 then
+                    tbl_write(file, block, key, true)
+                end
+            end
+            for _, block in ipairs(cr[key]) do
+                if #block ~= 0 then
+                    block_write(file, block, key, true)
+                end
             end
         end
     end
