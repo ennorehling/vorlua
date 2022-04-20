@@ -27,7 +27,7 @@ if result then
         n = 4
     end
     if arg[n] == '--' then n = n + 1 end
-    result = foo(result, unpack(arg, n))
+    result = foo(result, table.unpack(arg, n))
     if result then
         crs.write(result, outfile)
     end
