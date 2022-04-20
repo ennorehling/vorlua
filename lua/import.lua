@@ -1,11 +1,18 @@
 crs = require('cr')
 
-local function merge(result, faction, first, last)
-    first = first or 1
-    origin = nil
-    local o = crs.find_region(result, 0, 0)
-    if o then origin = o.id end
-    for i=first,last or 100000,1 do
+local function merge(infile, faction, first, last)
+    local result, err
+    local first = first or 1
+    local origin = nil
+    result, err = crs.read(infile)
+    if err then
+        print(err, 'cannot load ' .. infile .. ', creating new file')
+        result = nil
+    else 
+        local o = crs.find_region(result, 0, 0)
+        if o then origin = o.id end
+    end
+    for i = first, last or 100000, 1 do
         name = i .. '-' .. faction .. '.cr'
         cr, err = crs.read(name)
         if cr then

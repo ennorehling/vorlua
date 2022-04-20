@@ -25,7 +25,8 @@ local export_filter = {
     }
 }
 
-local function export(cr)
+local function export(infile)
+    cr = crs.read(infile)
     crs.filter(cr, export_filter)
     return cr
 end

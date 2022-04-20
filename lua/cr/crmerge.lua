@@ -78,7 +78,6 @@ local function merge_regions(list, new)
             list[orig.index] = o
         end
     end
-       
     return list
 end
 
@@ -109,7 +108,7 @@ end
 
 local function merge(orig, cr)
     orig.MESSAGETYPE = nil
-    orig.BATTLE = nil
+    orig.BATTLE = cr.BATTLE
     merge_object(orig.VERSION, cr.VERSION)
     orig.PARTEI = cr.PARTEI
     assert(orig.REGION)

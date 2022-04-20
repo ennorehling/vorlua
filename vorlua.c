@@ -43,6 +43,9 @@ static int block_info(const char *block, int keyc, bool *seq) {
     else if (strcmp(block, "REGION") == 0) {
         return 0;
     }
+    else if (strcmp(block, "BATTLE") == 0) {
+        return 0;
+    }
     else if (strcmp(block, "MESSAGETYPE") == 0) {
         return 0;
     }
@@ -91,7 +94,7 @@ static void new_sequence(lua_State *L, const char *name) {
     }
     else {
         /* the sequence exist already, how long is it? */
-        size_t len = lua_rawlen(L, -1);
+        size_t len = (size_t)lua_rawlen(L, -1);
         assert(len < INT_MAX);
         index = (int)len + 1;
     }
@@ -106,7 +109,7 @@ static void new_sequence(lua_State *L, const char *name) {
     lua_pop(L, 1);
 }
 
-static void handle_element(void *udata, const char *name, unsigned int keyc, int keyv[])
+static enum CR_Error handle_element(void *udata, const char *name, unsigned int keyc, int keyv[])
 {
     parser_t *state = (parser_t *)udata;
     lua_State *L = state->L;
@@ -159,9 +162,10 @@ static void handle_element(void *udata, const char *name, unsigned int keyc, int
         /* add the keys table to our new object: */
         lua_settable(L, -3);
     }
+    return CR_ERROR_NONE;
 }
 
-static void handle_string(void *udata, const char *name, const char *value) {
+static enum CR_Error handle_string(void *udata, const char *name, const char *value) {
     parser_t *state = (parser_t *)udata;
     lua_State *L = state->L;
 
@@ -169,9 +173,10 @@ static void handle_string(void *udata, const char *name, const char *value) {
     lua_pushstring(L, name);
     lua_pushstring(L, value);
     lua_settable(L, -3);
+    return CR_ERROR_NONE;
 }
 
-static void handle_number(void *udata, const char *name, long value) {
+static enum CR_Error handle_number(void *udata, const char *name, long value) {
     parser_t *state = (parser_t *)udata;
     lua_State *L = state->L;
 
@@ -179,18 +184,20 @@ static void handle_number(void *udata, const char *name, long value) {
     lua_pushstring(L, name);
     lua_pushinteger(L, (lua_Integer)value);
     lua_settable(L, -3);
+    return CR_ERROR_NONE;
 }
 
-static void handle_text(void *udata, const char *text) {
+static enum CR_Error handle_text(void *udata, const char *text) {
     size_t len;
     int index;
     parser_t *state = (parser_t *)udata;
     lua_State *L = state->L;
     lua_pushstring(L, text);
-    len = lua_rawlen(L, -2);
+    len = (size_t)lua_rawlen(L, -2);
     assert(len < INT_MAX);
-    index = (int)len;
-    lua_rawseti(L, -2, index + 1);
+    index = (int)len + 1;
+    lua_rawseti(L, -2, index);
+    return CR_ERROR_NONE;
 }
 
 static int parse_crfile(lua_State *L, FILE *in) {
@@ -273,7 +280,7 @@ int main (int argc, char *argv[]) {
     int i;
     const char * script = NULL;
 
-    if (argc < 1) {
+    if (argc < 2) {
         return usage(argv[0]);
     }
     script = argv[1];

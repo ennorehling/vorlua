@@ -1,17 +1,24 @@
 crs = require('cr')
 
-local function merge(result, ...)
+local function merge(...)
     local args = { select(1, ...) }
+    local result = nil
     for _, infile in ipairs(args) do
         cr, err = crs.read(infile)
         if cr then
-            local dx, dy
-            dx, dy = crs.find_offset(result, cr)
-            if dx and dy then
-                print(infile, 'origin is at ' .. dx .. ',' .. dy)
-                crs.move(cr, - dx, - dy)
+            if not result then
+                result = cr
+            else
+                local dx, dy
+                dx, dy = crs.find_offset(result, cr)
+                if dx or dy then
+                    print(infile, 'origin is at ' .. dx .. ',' .. dy)
+                    if dx ~= 0 or dy ~= 0 then
+                        crs.move(cr, - dx, - dy)
+                    end
+                end
+                crs.merge(result, cr)
             end
-            crs.merge(result, cr)
         else
             print(infile, err)
         end

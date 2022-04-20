@@ -154,7 +154,7 @@ local function crwrite(cr, filename)
     end
     -- always write the VERSION block first
     tbl_write(file, cr.VERSION, 'VERSION', false)
-    for _, key in ipairs({'PARTEI', 'REGION'}) do
+    for _, key in ipairs({'PARTEI', 'BATTLE', 'REGION'}) do
         if cr[key] then
             for _, block in ipairs(cr[key]) do
                 if #block == 0 then
