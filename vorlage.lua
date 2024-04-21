@@ -6,7 +6,7 @@ local crlib = require 'crlib'
 -- TODO: move exports to a separate library file
 
 function log_error(str)
-    io.stderr:write(str)
+    io.stderr:write(str .. "\n")
 end
 
 function itoa36(x)
@@ -66,11 +66,11 @@ end
 
 local function parse_comment(ctx, cmd, ...)
     if cmd == '#call' then
-        local fname = ...
+        local params = {...}
+        local fname = params[1]
         local fun = user[fname]
         if is_function(fun) then
-            local args = {...}
-            return fun(ctx, table.unpack(args, 2))
+            return fun(ctx, table.unpack(params, 2))
         else
             log_error('no such function: ' .. fname)
         end
@@ -99,8 +99,6 @@ local function print_commands(ctx)
         for _, str in ipairs(cmds) do
             print_command(u, str)
         end
-    else
-        print(indent('ARBEITEN'))
     end
     print('')
 end
@@ -186,6 +184,7 @@ local function process(cr, faction)
                 if u.Partei ~= fno then
                     local cmds = u.COMMANDS
                     local result = {}
+					local new_long = false
                     if cmds and (#cmds > 0) then
                         ctx.unit = u
                         for _, str in ipairs(cmds) do
@@ -193,8 +192,8 @@ local function process(cr, faction)
                             for w in str:gmatch('[^%s]+') do table.insert(words, w) end
                             if (words[1]=='//') then
                                 local cmd = words[2]
-                                if cmd:sub(1,1)=='#' then
-                                    local s = parse_comment(ctx, cmd, table.unpack(words, 3))
+                                if cmd and cmd:sub(1,1)=='#' then
+                                    local s, short = parse_comment(ctx, cmd, table.unpack(words, 3))
                                     if s then
                                         if type(s) == 'string' then
                                             table.insert(result, s)
@@ -204,23 +203,28 @@ local function process(cr, faction)
                                             end
                                         end
                                     end
+									if not short then
+										new_long = true
+									end
                                 end
                             end
                         end
                     end
                     if #result > 0 then
-                        -- keep all @commands and comments
-                        for _, str in ipairs(u.COMMANDS) do
-                            if string.match(str, '@') then
-                                table.insert(result, str)
-                            end
-                            if string.match(str, '//') then
-                                table.insert(result, str)
-                            end
-                        end
-                        u.COMMANDS = result
-                    end
-                end
+						for _, str in ipairs(u.COMMANDS) do
+							if not new_long then
+								-- keep all commands
+								table.insert(result, str)
+							else
+								-- only keep @commands and comments
+								if not string.match(str, '^%s*%a') then
+									table.insert(result, str)
+								end
+							end
+						end
+						u.COMMANDS = result
+                    end 
+				end
             end
         end
     end

@@ -2,8 +2,16 @@
 
 local crlib = require 'crlib'
 local crs = require 'cr'
+local alchemy = require 'alchemy'
+
+local RESOURCE_STONE = 221560393
+local RESOURCE_IRON = 5478848
 
 local self = {}
+
+local function unescape_spaces(str)
+    return string.gsub(str, '~', ' ')
+end
 
 local function get_char_at(s, i)
     return string.sub(s, i, i)
@@ -29,6 +37,13 @@ local function gen_elf_name()
     return gen_name() .. ' ' .. gen_name()
 end
 
+local function get_item(u, name)
+    if u.GEGENSTAENDE and u.GEGENSTAENDE[name] then
+        return tonumber(u.GEGENSTAENDE[name])
+    end
+    return 0
+end
+
 local function get_level(u, skill)
     if u.TALENTE and u.TALENTE[skill] then
         return tonumber(u.TALENTE[skill]:match(" (%d+)"))
@@ -36,8 +51,32 @@ local function get_level(u, skill)
     return 0
 end
 
+local function get_effects(u, item)
+    if u.EFFECTS then
+        for _, line in ipairs(u.EFFECTS) do
+            local m = line:match("(%d+) " .. item)
+            if m then
+                return tonumber(m)
+            end
+        end
+    end
+    return 0
+end
+
 self.work = function(ctx)
     return 'ARBEITE'
+end
+
+self.user = function(ctx, item, per_user)
+    local e = get_effects(ctx.unit, item) or 0
+    local need = ctx.unit.Anzahl - e
+    if need > 0 then
+		need = math.ceil(need / (per_user or 1))
+		return {
+			'; ' .. item .. ": " .. e .. ' verbleibende Wirkungen',
+			'BENUTZE ' .. need .. ' ' .. item
+		}, true
+    end
 end
 
 self.make_bows = function(ctx)
@@ -49,39 +88,168 @@ self.make_bows = function(ctx)
     end
 end
 
-self.entertain = function(ctx, ...)
-    local level = tonumber(arg[1]) or 1
-    local val = get_level(ctx.unit, 'Unterhaltung')
-    if val and (val >= level) then
-        return 'UNTERHALTE'
-    else
+self.lighthouse = function(ctx, ...)
+    ctx.unit.ejcOrdersConfirmed = 1
+    local params = {...}
+    local cmd = 'LERNE AUTO Wahrnehmung'
+    if get_item(ctx.unit, 'Silber') < 10 * ctx.unit.Anzahl then
+        if get_level(ctx.unit, 'Unterhaltung') > 0 then
+            cmd = 'UNTERHALTE'
+        end
+    end
+    if #params > 0 and not ctx.unit.Burg then
+        return {
+            cmd,
+            'BETRETE BURG ' .. params[1]
+        }
+    end
+    return cmd
+end
+
+self.trader = function(ctx, num, good, ...)
+    local params = {...}
+    local result = {}
+    table.insert(result, 'KAUFE ' .. num .. ' ' .. good)
+    if #params > 0 then
+        for i=1,#params do
+            table.insert(result, '!VERKAUFE ALLES ' .. params[i])
+        end
+    end
+    return result
+end
+
+self.embassy = function(ctx, ...)
+    local ent = get_level(ctx.unit, 'Unterhaltung')
+    if ent < 1 then
         return 'LERNE Unterhaltung'
+    else
+        local mon = get_item(ctx.unit, 'Silber')
+        if mon < 10 then
+            return '@ARBEITE'
+        elseif mon < 20 then
+            return 'UNTERHALTE'
+        end
+    end
+    return {
+        'LERNE Wahrnehmung',
+        '@RESERVIERE 20 Silber'
+    }
+end
+
+self.entertain = function(ctx, ...)
+    local params = {...}
+    local val = get_level(ctx.unit, 'Unterhaltung')
+    local level = 1
+    ctx.unit.ejcOrdersConfirmed = 1
+    if #params > 0 then
+        level = tonumber(params[1]) or 1
+    end
+    if val and (val >= level) then
+        return {
+            '; bestaetigt',
+            'UNTERHALTE'
+        }
+    else
+        return {
+            '; bestaetigt',
+            'LERNE AUTO Unterhaltung'
+        }
     end
 end
 
 -- learn skill [skill ...]
 -- example: #call learn Stangenwaffen Ausdauer
-self.learn = function(ctx, ...)
+self.learn = function(ctx, skill, ...)
     local u = ctx.unit
-    local n = #arg
-    if n == 1 then
-        return 'LERNE AUTO ' .. arg(1)
-    else
-        local i = 1 + ctx.turn % n
-        return 'LERNE AUTO ' .. arg[i]
+    local params = {...}
+    if #params > 0 then
+        local i = ctx.turn % #params
+        skill = params[i + 1]
     end
+    return {
+        '; bestaetigt',
+        'LERNE AUTO ' .. skill
+    }
 end
 
-self.learnto = function(ctx, skill, level)
+self.multiply = function(ctx, skill, count)
     local u = ctx.unit
-    if get_level(u, skill) < tonumber(level) then
-        return 'LERNE AUTO ' .. skill
+    count = count or ctx.region.Rekruten
+    if tonumber(count) > ctx.region.Rekruten then
+        count = ctx.region.Rekruten
+    end
+    temp = itoa36(u.keys[1])
+    return {
+        'LERNE AUTO ' .. skill,
+        'MACHE TEMP ' .. temp .. ' "' .. u.Name .. '"',
+        '  REKRUTIERE ' .. count,
+        '  LERNE AUTO ' .. skill,
+        'ENDE'
+    }
+end
+
+self.auto = function(ctx, skill, level)
+    local u = ctx.unit
+    local goal = tonumber(level)
+    if type(goal)~='number' then
+        return "; OBS: Syntax error, level: " .. level
+    elseif get_level(u, skill) < goal then
+        ctx.unit.ejcOrdersConfirmed = 1
+        return {
+            '; bestaetigt',
+            'LERNE AUTO ' .. skill
+        }
     else
         return {
             'LERNE AUTO ' .. skill,
             '; OBS: ' .. skill .. ' ' .. get_level(u, skill)
         }
     end
+end
+
+self.learnto = function(ctx, skill, level, ...)
+    local u = ctx.unit
+    local goal = tonumber(level)
+    if type(goal)~='number' then
+        return "; OBS: Syntax error, level: " .. level
+    elseif get_level(u, skill) < goal then
+        ctx.unit.ejcOrdersConfirmed = 1
+        return {
+            '; bestaetigt',
+            'LERNE ' .. skill
+        }
+    else
+        local params = {...}
+        cmd = 'LERNE AUTO'
+        for k, param in ipairs(params) do
+            if param == 'noauto' then
+                cmd = 'LERNE'
+            end
+        end
+        return {
+            cmd .. ' ' .. skill,
+            '; OBS: ' .. skill .. ' ' .. get_level(u, skill)
+        }
+    end
+end
+
+self.recruit = function(ctx, ...)
+    local r = ctx.region
+    local u = ctx.unit
+    local params = {...}
+    local incr = tonumber(params[1])
+    local tomax = params[2]
+    if tomax then 
+        local diff = tonumber(tomax) - u.Anzahl
+        if diff > 0 then
+            if diff < incr then
+                incr = diff
+            end
+        else
+            return '; OBS: unit size reached ' .. tomax
+        end
+    end
+    return 'REKRUTIERE ' .. incr
 end
 
 self.recruit_entertainers = function(ctx)
@@ -118,33 +286,142 @@ end
 self.findstone = function(ctx)
     local r = ctx.region
     local u = ctx.unit
-    if r.Steine then
-        return {
-            '// OBS: Steine gefunden',
-            'MACHE Steine',
-        }
-    else
-        return 'LERNE AUTO Steinbau'
+    if r.RESOURCE and r.RESOURCE[RESOURCE_STONE] then
+        local needed = r.RESOURCE[RESOURCE_STONE].skill
+        local skill = get_level(u, "Steinbau")
+        print('; ' .. itoa36(u.keys[1]) .. ' findstone: ' .. skill .. ' of ' .. needed)
+        if needed <= skill then
+            return {
+                '; OBS: Steine gefunden',
+                'MACHE Steine',
+            }
+        end
     end
+    ctx.unit.ejcOrdersConfirmed = 1
+    return {
+        '; bestaetigt',
+        'LERNE AUTO Steinbau'
+    }
 end
 
 self.findiron = function(ctx)
     local r = ctx.region
     local u = ctx.unit
-    if r.Eisen then
+    if r.RESOURCE and r.RESOURCE[RESOURCE_IRON] and r.RESOURCE[RESOURCE_IRON].skill <= get_level(u, "Bergbau") then
         return {
-            '// OBS: Eisen gefunden',
+            '; OBS: Eisen gefunden',
             'MACHE Eisen',
         }
     else
-        return 'LERNE AUTO Bergbau'
+        ctx.unit.ejcOrdersConfirmed = 1
+        return {
+            '; bestaetigt',
+            'LERNE AUTO Bergbau'
+        }
     end
+end
+
+local function all_items(r)
+    result = {}
+    if r.EINHEIT then
+        for i, u in ipairs(r.EINHEIT) do
+            if u.GEGENSTAENDE then
+                for k, v in pairs(u.GEGENSTAENDE) do
+                    local x = result[k] or 0
+                    result[k] = x + v
+                end
+            end
+        end
+    end
+    return result
+end
+
+local g_alchemist = {
+    r = nil,
+    potions = {}
+}
+
+self.alchemist = function(ctx, ...)
+    local params = {...}
+    local index = 1
+    local r = ctx.region
+    if g_alchemist.r ~= r then
+        local items = all_items(r)
+        g_alchemist.items = items
+        g_alchemist.potions = alchemy.possible_potions(items)
+        g_alchemist.r = r
+    end
+    local potions = g_alchemist.potions
+    local item = nil
+    local result = {'; Alchemist'}
+    local skill = get_level(ctx.unit, 'Alchemie')
+    if #params > 0 then
+        for _, want in ipairs(params) do
+            -- want = unescape_spaces(want)
+            if potions[want] and potions[want].count > 0 then
+                if potions[want].potion.level <= skill / 2 then
+                    item = want
+                    break
+                end
+            end
+        end
+    end
+--[[
+    if not item then
+        for name, potion in pairs(potions) do
+            local n = potion.count
+            item = item or name
+            table.insert(result, '; ' .. n .. ' ' .. name)
+        end
+    end
+--]]
+    if item then
+        local limit = math.floor(ctx.unit.Anzahl * skill / 2)
+        -- try making as many as possible:
+        local num = g_alchemist.potions[item].count
+        if num > limit then num = limit end
+        -- assume we can make all of them:
+        g_alchemist.potions[item].count = g_alchemist.potions[item].count - num
+        table.insert(result, 'MACHE ' .. num .. ' ' .. item)
+    else
+        table.insert(result, 'LERNE Alchemie')
+    end
+    return result
+end
+
+-- MACHE Kräuter mit regelmäßiger FORSCHung
+-- Examples:
+--  #call herbalist : FORSCHE jede Woche
+--  #call herbalist 10 : MACHE 10, FORSCHE jede 5. Woche (10/2)
+--  #call herbalist 10 4 : MACHE 10, FORSCHE jede 4. Woche
+--  #call herbalist 10 0 : MACHE 10, FORSCHE nie
+self.herbalist = function(ctx, ...)
+    local params = {...}
+    local want = 0
+    local check = 0
+    if #params > 0 then
+        want = tonumber(params[1])
+    end
+    if #params > 1 then
+        check = tonumber(params[2])
+    elseif want > 1 then
+        check = want / 2
+    end
+    if want > 0 then
+        if (check ~= 0) and (ctx.turn % check ~= 0) then
+            return {
+                '; bestaetigt',
+                "MACHE " .. want .. " Kräuter"
+            }
+        end
+    end
+    return "FORSCHE Kräuter"
 end
 
 local function find_new_monsters(cr, old)
     local monsters = {}
     for _, r in ipairs(cr.REGION) do
-        if r.EINHEIT then
+        if r.EINHEIT and not r.visibility then
             for i, u in ipairs(r.EINHEIT) do
                 if u.Partei == 666 then
                     local no = u.keys[1]
@@ -170,15 +447,16 @@ local function find_new_monsters(cr, old)
     return monsters
 end
 
-local function print_monsters(monsters)
+local function print_monsters(monsters, turn)
     for k, v in pairs(monsters) do
         local u = v.unit
         local r = v.region
-        s = string.format('; %s: %d %s, %s ',
+        s = string.format('; %s: %d %s (%s) @%d',
             r.Name or regionname(r),
             u.Anzahl,
             u.Typ,
-            unitname(u))
+            itoa36(u.keys[1]),
+            turn)
         print(s)
     end
 end
@@ -224,6 +502,7 @@ local ignored_messages = {
     2019496915, -- Unterhalt nicht gezahlt
     2110306401, -- BOTSCHAFT REGION
     2122087327, -- Bauern flohen aus Furcht vor
+    1398502408, -- X Bauern besucht unverhofft der Storch.
 --[[
     107552268, -- bezahlt den Unterhalt
     170076, -- bezahlt für den Kauf von Luxusgütern
@@ -238,6 +517,7 @@ local important_messages = {
     829394366, -- X in Y wird durch unzureichende Nahrung geschwächt.
     1158830147, -- X verliert in Y N Personen durch Unterernährung.
     1451290990, -- Die X entdeckt, dass Y Festland ist.
+    424720393, -- eine Botschaft
     -1
 }
 
@@ -307,13 +587,39 @@ self.onload = function(cr, faction)
     local turn = cr.VERSION['Runde']
     local name = (turn-1) .. '-' .. itoa36(fno) .. '.cr'
     local old, err = crs.read(name)
+    math.randomseed(turn)
     if not old then
         log_error(name .. '\t' .. err .. '\n')
     else
+        --[[
         local monsters = find_new_monsters(cr, old)
-        print_monsters(monsters)
+        print_monsters(monsters, turn)
         print_low_silver(cr, faction)
         print_messages(cr, faction)
+        ]]
+    end
+end
+
+self.onregion = function(ctx)
+    local r = ctx.region
+    local fno = ctx.faction.keys[1]
+    
+    if r.EINHEIT then
+        local silver = 0
+        local men = 0
+        local first = nil
+        for _, u in ipairs(r.EINHEIT) do
+            if u.Partei == fno then
+                silver = silver + get_item(u, "Silber")
+                men = men + u.Anzahl
+                if not first then first = u end
+            end
+        end
+        if first and silver < men * 10 then
+            local cmds = first.COMMANDS or {}
+            table.insert(cmds, "; OBS Silber: only " .. silver .. " silver for " .. men .. " men")
+            first.COMMANDS = cmds
+        end
     end
 end
 
